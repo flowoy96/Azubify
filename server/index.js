@@ -96,18 +96,19 @@ api.patch('/users/:id', admin, wrap((req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!u) return bad(res, 'Benutzer nicht gefunden.', 404);
   const isSelf = u.id === req.user.id;
+  const otherAdmin = () => db.prepare("SELECT 1 FROM users WHERE role='admin' AND active=1 AND id<>?").get(u.id);
   const { displayName, role, active, password } = req.body;
   if (displayName !== undefined) {
     if (!String(displayName).trim()) return bad(res, 'Anzeigename darf nicht leer sein.');
     db.prepare('UPDATE users SET display_name=? WHERE id=?').run(String(displayName).trim().slice(0, 80), u.id);
   }
   if (role !== undefined && role !== u.role) {
-    if (isSelf) return bad(res, 'Du kannst deine eigene Gruppe nicht ändern.');
+    if (u.role === 'admin' && !otherAdmin()) return bad(res, 'Es muss mindestens ein aktiver Admin bleiben.');
     if (!validRole(role)) return bad(res, 'Ungültige Gruppe.');
     db.prepare('UPDATE users SET role=? WHERE id=?').run(role, u.id);
   }
   if (active !== undefined) {
-    if (isSelf) return bad(res, 'Du kannst dich nicht selbst deaktivieren.');
+    if (!active && u.role === 'admin' && !otherAdmin()) return bad(res, 'Es muss mindestens ein aktiver Admin bleiben.');
     db.prepare('UPDATE users SET active=? WHERE id=?').run(active ? 1 : 0, u.id);
     if (!active) db.prepare('DELETE FROM sessions WHERE user_id=?').run(u.id);
   }
@@ -121,7 +122,7 @@ api.patch('/users/:id', admin, wrap((req, res) => {
 api.delete('/users/:id', admin, wrap((req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!u) return bad(res, 'Benutzer nicht gefunden.', 404);
-  if (u.id === req.user.id) return bad(res, 'Du kannst dich nicht selbst löschen.');
+  if (u.role === 'admin' && !db.prepare("SELECT 1 FROM users WHERE role='admin' AND active=1 AND id<>?").get(u.id)) return bad(res, 'Es muss mindestens ein aktiver Admin bleiben.');
   db.prepare('DELETE FROM users WHERE id=?').run(u.id);
   res.json({ ok: true });
 }));
@@ -159,7 +160,7 @@ api.get('/topics', wrap((req, res) => {
       publishedCount: db.prepare("SELECT COUNT(*) c FROM tasks WHERE topic_id=? AND status='published'").get(t.id).c,
       accessCount: db.prepare('SELECT COUNT(*) c FROM topic_access WHERE topic_id=?').get(t.id).c,
       toReview: db.prepare(`SELECT COUNT(*) c FROM submissions s JOIN tasks k ON k.id=s.task_id
-        WHERE k.topic_id=? AND s.status='submitted'`).get(t.id).c,
+        WHERE k.topic_id=? AND s.status='submitted' AND s.archived=0`).get(t.id).c,
     }));
     return res.json({ topics });
   }
@@ -204,7 +205,7 @@ api.get('/topics/:id', wrap((req, res) => {
       return {
         id: k.id, title: k.title, status: k.status, dueDate: k.due_date,
         questions: blocks.filter(B.isQuestion).length, points: blocks.reduce((s, b) => s + (B.isQuestion(b) ? b.points || 0 : 0), 0),
-        submitted: c.submitted || 0, reviewed: c.reviewed || 0, draft: c.draft || 0, updatedAt: k.updated_at,
+        submitted: db.prepare("SELECT COUNT(*) c FROM submissions WHERE task_id=? AND status='submitted' AND archived=0").get(k.id).c, reviewed: c.reviewed || 0, draft: c.draft || 0, updatedAt: k.updated_at,
       };
     });
     const access = db.prepare('SELECT user_id FROM topic_access WHERE topic_id=?').all(t.id).map((r) => r.user_id);
@@ -355,6 +356,7 @@ api.get('/tasks/:id/submissions', staff, wrap((req, res) => {
     return {
       userId: u.id, name: u.display_name, submissionId: s ? s.id : null,
       status: !s ? 'open' : s.status === 'draft' ? (Object.keys(answers).length ? (s.returned ? 'returned' : 'started') : 'open') : s.status,
+      archived: !!(s && s.archived),
       submittedAt: s && s.submitted_at, score: ev && ev.score, max: ev && ev.max, openBlocks: ev && ev.open,
     };
   });
@@ -369,7 +371,7 @@ api.get('/submissions/:id', staff, wrap((req, res) => {
   const answers = jparse(s.answers, {}), review = jparse(s.review, {});
   res.json({
     task: taskJson(t, t.blocksArr), user: { id: u.id, name: u.display_name },
-    submission: { id: s.id, status: s.status, returned: !!s.returned, answers, submittedAt: s.submitted_at, reviewedAt: s.reviewed_at, comment: review.comment || '' },
+    submission: { id: s.id, archived: !!s.archived, taskId: s.task_id, status: s.status, returned: !!s.returned, answers, submittedAt: s.submitted_at, reviewedAt: s.reviewed_at, comment: review.comment || '' },
     result: B.evaluate(t.blocksArr, answers, review),
   });
 }));
@@ -400,6 +402,18 @@ api.put('/submissions/:id/review', staff, wrap((req, res) => {
   res.json({ ok: true, status, result: B.evaluate(t.blocksArr, jparse(s.answers, {}), review) });
 }));
 
+api.put('/submissions/:id/archive', staff, wrap((req, res) => {
+  const r = db.prepare('UPDATE submissions SET archived=? WHERE id=?').run(req.body.archived ? 1 : 0, req.params.id);
+  if (!r.changes) return bad(res, 'Abgabe nicht gefunden.', 404);
+  res.json({ ok: true });
+}));
+// Löscht die Abgabe endgültig; der Azubi kann die Aufgabe danach neu bearbeiten.
+api.delete('/submissions/:id', staff, wrap((req, res) => {
+  const r = db.prepare('DELETE FROM submissions WHERE id=?').run(req.params.id);
+  if (!r.changes) return bad(res, 'Abgabe nicht gefunden.', 404);
+  res.json({ ok: true });
+}));
+
 // ───────────── Lernfortschritt (Ausbilder) ─────────────
 api.get('/progress', staff, wrap((req, res) => {
   const azubis = db.prepare("SELECT id, display_name, active FROM users WHERE role='azubi' ORDER BY active DESC, display_name COLLATE NOCASE").all();
@@ -414,7 +428,7 @@ api.get('/progress', staff, wrap((req, res) => {
   });
   const toReview = db.prepare(`SELECT s.id, s.submitted_at, u.display_name name, t.title task, p.title topic, t.id task_id
     FROM submissions s JOIN users u ON u.id=s.user_id JOIN tasks t ON t.id=s.task_id JOIN topics p ON p.id=t.topic_id
-    WHERE s.status='submitted' ORDER BY s.submitted_at`).all();
+    WHERE s.status='submitted' AND s.archived=0 ORDER BY s.submitted_at`).all();
   res.json({ azubis: rows, toReview });
 }));
 api.get('/progress/:userId', staff, wrap((req, res) => {

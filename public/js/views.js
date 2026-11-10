@@ -247,12 +247,27 @@ function solutionHint(b) {
 
 export async function taskResults(main, id) {
   const { task, rows } = await api('GET', `/tasks/${id}/submissions`);
-  clear(main).append(crumbs({ label: 'Themen & Aufgaben', href: '#/topics' }, { label: 'Thema', href: `#/topic/${task.topicId}` }, { label: 'Ergebnisse' }), pageHead(task.title, 'Abgaben der freigeschalteten Azubis'));
-  if (!rows.length) return main.append(empty('users', 'Keine Azubis', 'Für dieses Thema ist noch kein Azubi freigeschaltet.'));
-  main.append(h('div', { class: 'list' }, rows.map((r) => h(r.submissionId && r.status !== 'open' ? 'a' : 'div', { class: 'item', href: r.submissionId ? `#/submission/${r.submissionId}` : undefined },
-    h('div', { style: { flex: 1 } }, h('div', { class: 't' }, r.name), r.submittedAt && h('div', { class: 's' }, `Abgegeben ${fmtDate(r.submittedAt, true)}`)),
-    r.max > 0 && r.score !== null && h('span', { class: 'num', style: { fontWeight: 600 } }, `${fmtNum(r.score)} / ${fmtNum(r.max)}`), r.openBlocks > 0 && r.status === 'submitted' && h('span', { class: 'small muted hide-sm' }, `${r.openBlocks} manuell`),
-    statusPill(r.status), r.submissionId && r.status !== 'open' && h('span', { class: 'chev' }, icon('chevron', 16))))));
+  let showArchive = false;
+  const reload = () => taskResults(main, id);
+  const archivedCount = rows.filter((r) => r.archived).length;
+  const draw = () => {
+    clear(main).append(crumbs({ label: 'Themen & Aufgaben', href: '#/topics' }, { label: 'Thema', href: `#/topic/${task.topicId}` }, { label: 'Ergebnisse' }),
+      pageHead(task.title, 'Abgaben der freigeschalteten Azubis', archivedCount > 0 && h('button', { class: 'btn', onclick: () => { showArchive = !showArchive; draw(); } }, icon('archive', 16), showArchive ? 'Archiv ausblenden' : `Archiv anzeigen (${archivedCount})`)));
+    const list = rows.filter((r) => showArchive || !r.archived);
+    if (!rows.length) return main.append(empty('users', 'Keine Azubis', 'Für dieses Thema ist noch kein Azubi freigeschaltet.'));
+    main.append(h('div', { class: 'list' }, list.map((r) => {
+      const has = r.submissionId && r.status !== 'open';
+      return h('div', { class: 'item', style: { opacity: r.archived ? 0.6 : 1 } },
+        h(has ? 'a' : 'div', { href: has ? `#/submission/${r.submissionId}` : undefined, style: { flex: 1, minWidth: 0, color: 'inherit' } },
+          h('div', { class: 't' }, r.name, r.archived && h('span', { class: 'pill c-gray', style: { marginLeft: '8px' } }, 'Archiviert')), r.submittedAt && h('div', { class: 's' }, `Abgegeben ${fmtDate(r.submittedAt, true)}`)),
+        r.max > 0 && r.score !== null && h('span', { class: 'num', style: { fontWeight: 600 } }, `${fmtNum(r.score)} / ${fmtNum(r.max)}`),
+        r.openBlocks > 0 && r.status === 'submitted' && h('span', { class: 'small muted hide-sm' }, `${r.openBlocks} manuell`), statusPill(r.status),
+        r.submissionId && h('button', { class: 'icon-btn', title: r.archived ? 'Aus dem Archiv holen' : 'Archivieren', 'aria-label': r.archived ? 'Aus dem Archiv holen' : 'Archivieren', onclick: async () => { await api('PUT', `/submissions/${r.submissionId}/archive`, { archived: !r.archived }); toast(r.archived ? 'Wiederhergestellt.' : 'Archiviert.'); reload(); } }, icon('archive', 16)),
+        r.submissionId && h('button', { class: 'icon-btn danger', title: 'Abgabe löschen', 'aria-label': 'Abgabe löschen', onclick: async () => { if (await confirmDialog('Abgabe löschen?', `Die Antworten und die Bewertung von ${r.name} werden endgültig gelöscht. Der Azubi kann die Aufgabe danach neu bearbeiten.`)) { await api('DELETE', `/submissions/${r.submissionId}`); toast('Abgabe gelöscht.'); reload(); } } }, icon('trash', 16)));
+    })));
+    if (!list.length) main.append(empty('archive', 'Alles archiviert', 'Es gibt keine aktiven Abgaben.'));
+  };
+  draw();
 }
 
 export async function submissionReview(main, id) {
@@ -310,7 +325,10 @@ export async function submissionReview(main, id) {
         ? h('button', { class: 'btn', onclick: () => act('reopen', 'Bewertung wieder geöffnet.') }, 'Bewertung bearbeiten')
         : sub.status === 'submitted' ? [h('button', { class: 'btn primary', onclick: () => act('finish', 'Bewertung abgeschlossen.') }, icon('check', 16), 'Bewertung abschließen'),
           h('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Zurückgeben?', 'Der Azubi kann die Aufgabe dann erneut bearbeiten und abgeben.', 'Zurückgeben', false)) act('return', 'Zur Überarbeitung zurückgegeben.'); } }, 'Zur Überarbeitung zurückgeben')]
-          : h('p', { class: 'small muted' }, 'Der Azubi bearbeitet diese Aufgabe gerade. Du siehst den aktuellen Stand.'));
+          : h('p', { class: 'small muted' }, 'Der Azubi bearbeitet diese Aufgabe gerade. Du siehst den aktuellen Stand.'),
+      h('div', { class: 'row', style: { borderTop: '.5px solid var(--line)', paddingTop: '12px' } },
+        h('button', { class: 'btn sm', onclick: async () => { await api('PUT', `/submissions/${id}/archive`, { archived: !sub.archived }); sub.archived = !sub.archived; toast(sub.archived ? 'Archiviert.' : 'Wiederhergestellt.'); render(); } }, icon('archive', 15), sub.archived ? 'Aus Archiv holen' : 'Archivieren'),
+        h('button', { class: 'btn sm danger', onclick: async () => { if (await confirmDialog('Abgabe löschen?', `Die Antworten und die Bewertung von ${user.name} werden endgültig gelöscht. Der Azubi kann die Aufgabe danach neu bearbeiten.`)) { dirty = false; clearTimeout(timer); await api('DELETE', `/submissions/${id}`); toast('Abgabe gelöscht.'); location.hash = `#/results/${task.id}`; } } }, icon('trash', 15), 'Löschen')));
     main.append(h('div', { class: 'rv-grid' }, renderBlocks({ blocks: task.blocks, answers: sub.answers, readOnly: true, result, showSolutions: true, extra: sub.status === 'draft' && !sub.returned ? undefined : extra }), side));
     drawTotal();
   }
@@ -347,13 +365,21 @@ export async function adminUsers(main, u) {
         h('button', { class: 'icon-btn', title: 'Bearbeiten', 'aria-label': 'Bearbeiten', onclick: async () => {
           const r = await formDialogSubmit({ title: 'Benutzer bearbeiten', fields: [
             { name: 'displayName', label: 'Name', value: x.displayName },
-            !self && { name: 'role', label: 'Gruppe', type: 'select', value: x.role, options: [['azubi', 'Azubi'], ['ausbilder', 'Ausbilder'], ['admin', 'Admin']] },
+            { name: 'role', label: 'Gruppe', type: 'select', value: x.role, options: [['azubi', 'Azubi'], ['ausbilder', 'Ausbilder'], ['admin', 'Admin']] },
             { name: 'password', label: 'Neues Passwort (optional)', type: 'text', hint: 'Leer lassen, um das Passwort zu behalten.' },
-          ].filter(Boolean), onSubmit: (v) => { const body = { displayName: v.displayName, password: v.password }; if (v.role) body.role = v.role; return api('PATCH', `/users/${x.id}`, body); } });
+          ].filter(Boolean), onSubmit: (v) => { const body = { displayName: v.displayName, password: v.password }; if (v.role !== x.role) body.role = v.role; return api('PATCH', `/users/${x.id}`, body); } });
           if (r) { toast('Gespeichert.'); reload(); }
         } }, icon('edit', 16)),
-        !self && h('button', { class: 'icon-btn', title: x.active ? 'Deaktivieren' : 'Aktivieren', 'aria-label': x.active ? 'Deaktivieren' : 'Aktivieren', onclick: async () => { await api('PATCH', `/users/${x.id}`, { active: !x.active }); reload(); } }, icon(x.active ? 'lock' : 'check', 16)),
-        !self && h('button', { class: 'icon-btn danger', title: 'Löschen', 'aria-label': 'Löschen', onclick: async () => { if (await confirmDialog('Benutzer löschen?', `„${x.displayName}“ und alle zugehörigen Abgaben werden endgültig gelöscht. Tipp: Deaktivieren behält die Daten.`)) { await api('DELETE', `/users/${x.id}`); reload(); } } }, icon('trash', 16)))));
+        h('button', { class: 'btn sm', style: { marginLeft: '6px' }, onclick: async () => {
+          if (x.active && self && !await confirmDialog('Eigenes Konto deaktivieren?', 'Du wirst sofort abgemeldet und kannst dich nicht mehr anmelden, bis ein anderer Admin dein Konto wieder aktiviert.', 'Deaktivieren')) return;
+          try { await api('PATCH', `/users/${x.id}`, { active: !x.active }); } catch (e) { toast(e.message, 'err'); return; }
+          toast(x.active ? 'Konto deaktiviert.' : 'Konto aktiviert.'); reload();
+        } }, x.active ? 'Deaktivieren' : 'Aktivieren'),
+        h('button', { class: 'icon-btn danger', title: 'Löschen', 'aria-label': 'Löschen', onclick: async () => {
+          if (!await confirmDialog('Benutzer löschen?', `„${x.displayName}“ und alle zugehörigen Abgaben werden endgültig gelöscht. Tipp: Deaktivieren behält die Daten.`)) return;
+          try { await api('DELETE', `/users/${x.id}`); } catch (e) { toast(e.message, 'err'); return; }
+          reload();
+        } }, icon('trash', 16)))));
   }
   main.append(h('div', { class: 'card flush tbl-wrap' }, h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ['Name', 'Gruppe', 'Angelegt', ''].map((t, i) => h('th', { class: i === 2 ? 'hide-sm' : '' }, t)))), body)));
 }
