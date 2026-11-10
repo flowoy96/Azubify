@@ -111,3 +111,7 @@ npm test
 Aufbau: `server/` (Express-API, SQLite, Bewertungslogik), `public/` (Frontend ohne Build-Schritt, Vanilla-JS-Module), `Dockerfile`, `.github/workflows/docker.yml`.
 
 Lokales Image bauen: `docker build -t azubify .`
+
+## Lizenz
+
+[MIT](LICENSE) © 2026 flowoy96. Die Software wird ohne Gewährleistung bereitgestellt.
