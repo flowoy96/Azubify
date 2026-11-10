@@ -143,7 +143,7 @@ export async function staffDashboard(main) {
     h('thead', null, h('tr', null, ['Name', 'Fortschritt', 'Abgegeben', 'Ergebnis', ''].map((x, i) => h('th', { class: i === 2 ? 'hide-sm' : '' }, x)))),
     h('tbody', null, azubis.map((a) => h('tr', { class: 'clickable', onclick: () => { location.hash = `#/azubi/${a.id}`; } },
       h('td', null, h('div', { style: { fontWeight: 500 } }, a.name), !a.active && h('span', { class: 'small muted' }, 'deaktiviert')),
-      h('td', { style: { minWidth: '160px' } }, a.total ? h('div', null, progressBar(pct(a.done, a.total)), h('div', { class: 'small muted', style: { marginTop: '4px' } }, `${a.done} von ${a.total} Aufgaben`)) : h('span', { class: 'muted' }, 'Keine Themen freigeschaltet')),
+      h('td', { style: { minWidth: '160px' } }, a.total ? h('div', null, progressBar(pct(a.done, a.total)), h('div', { class: 'small muted', style: { marginTop: '4px' } }, `${a.done} von ${a.total} Aufgaben`)) : h('span', { class: a.topicCount ? 'pill c-orange' : 'muted' }, a.topicCount ? 'Freigeschaltet, aber keine veröffentlichten Aufgaben' : 'Keine Themen freigeschaltet')),
       h('td', { class: 'hide-sm num' }, a.submitted ? h('span', { class: 'pill c-purple' }, `${a.submitted} offen`) : '–'),
       h('td', { class: 'num' }, a.max ? `${pct(a.score, a.max)} %` : '–'),
       h('td', { style: { textAlign: 'right', color: 'var(--faint)' } }, icon('chevron', 16))))))));
@@ -204,10 +204,11 @@ export async function staffTopic(main, id) {
     pageHead(topic.title, topic.description || `${access.length} Azubi${access.length === 1 ? '' : 's'} freigeschaltet`,
       h('button', { class: 'btn', onclick: accessDlg }, icon('users', 16), `Freischalten (${access.length})`), h('button', { class: 'btn primary', onclick: newTask }, icon('plus', 16), 'Neue Aufgabe')));
   if (!tasks.length) return main.append(empty('edit', 'Noch keine Aufgaben', 'Erstelle die erste Aufgabe für dieses Thema.'));
+  if (access.length && !tasks.some((t) => t.status === 'published')) main.append(h('div', { class: 'banner orange' }, icon('info', 22), h('div', null, h('b', null, 'Azubis sehen noch nichts'), h('div', null, 'Alle Aufgaben sind noch Entwürfe. Klicke bei einer Aufgabe auf „Entwurf“, um sie zu veröffentlichen.'))));
   main.append(h('div', { class: 'list' }, tasks.map((t) => h('div', { class: 'item' },
     h('a', { href: `#/edit/${t.id}`, style: { flex: 1, minWidth: 0, color: 'inherit' } }, h('div', { class: 't' }, t.title || 'Ohne Titel'),
       h('div', { class: 's' }, `${t.questions} Frage${t.questions === 1 ? '' : 'n'} · ${fmtNum(t.points)} Punkte${t.dueDate ? ' · fällig ' + fmtDate(t.dueDate) : ''}`)),
-    h('span', { class: `pill c-${t.status === 'published' ? 'green' : 'gray'}` }, t.status === 'published' ? 'Veröffentlicht' : 'Entwurf'),
+    h('button', { class: `pill c-${t.status === 'published' ? 'green' : 'gray'}`, style: { border: 0, cursor: 'pointer' }, title: t.status === 'published' ? 'Klicken, um auf Entwurf zurückzusetzen' : 'Klicken, um zu veröffentlichen', onclick: async () => { await api('PUT', `/tasks/${t.id}`, { status: t.status === 'published' ? 'draft' : 'published' }); toast(t.status === 'published' ? 'Auf Entwurf gesetzt.' : 'Veröffentlicht – Azubis sehen die Aufgabe jetzt.'); reload(); } }, t.status === 'published' ? 'Veröffentlicht' : 'Entwurf'),
     h('a', { class: 'btn sm hide-sm', href: `#/results/${t.id}` }, 'Ergebnisse', t.submitted > 0 && h('span', { class: 'badge-n' }, t.submitted)),
     h('a', { class: 'icon-btn', href: `#/edit/${t.id}`, title: 'Bearbeiten', 'aria-label': 'Bearbeiten' }, icon('edit', 16)),
     h('button', { class: 'icon-btn', title: 'Duplizieren', 'aria-label': 'Duplizieren', onclick: async () => { await api('POST', `/tasks/${t.id}/duplicate`); toast('Dupliziert.'); reload(); } }, icon('copy', 16)),
@@ -327,7 +328,7 @@ export async function adminUsers(main, u) {
       fields: [
         { name: 'displayName', label: 'Name', placeholder: 'Vor- und Nachname' },
         { name: 'username', label: 'Benutzername', placeholder: 'z. B. max.muster' },
-        { name: 'role', label: 'Gruppe', type: 'select', value: 'azubi', options: [['azubi', 'Azubi'], ['ausbilder', 'Ausbilder']] },
+        { name: 'role', label: 'Gruppe', type: 'select', value: 'azubi', options: [['azubi', 'Azubi'], ['ausbilder', 'Ausbilder'], ['admin', 'Admin']] },
         { name: 'password', label: 'Startpasswort', type: 'text', hint: 'Mindestens 8 Zeichen. Die Person muss es beim ersten Login ändern.' },
       ],
       onSubmit: (v) => api('POST', '/users', v),
@@ -346,13 +347,13 @@ export async function adminUsers(main, u) {
         h('button', { class: 'icon-btn', title: 'Bearbeiten', 'aria-label': 'Bearbeiten', onclick: async () => {
           const r = await formDialogSubmit({ title: 'Benutzer bearbeiten', fields: [
             { name: 'displayName', label: 'Name', value: x.displayName },
-            !isAdmin && { name: 'role', label: 'Gruppe', type: 'select', value: x.role, options: [['azubi', 'Azubi'], ['ausbilder', 'Ausbilder']] },
+            !self && { name: 'role', label: 'Gruppe', type: 'select', value: x.role, options: [['azubi', 'Azubi'], ['ausbilder', 'Ausbilder'], ['admin', 'Admin']] },
             { name: 'password', label: 'Neues Passwort (optional)', type: 'text', hint: 'Leer lassen, um das Passwort zu behalten.' },
           ].filter(Boolean), onSubmit: (v) => { const body = { displayName: v.displayName, password: v.password }; if (v.role) body.role = v.role; return api('PATCH', `/users/${x.id}`, body); } });
           if (r) { toast('Gespeichert.'); reload(); }
         } }, icon('edit', 16)),
-        !self && !isAdmin && h('button', { class: 'icon-btn', title: x.active ? 'Deaktivieren' : 'Aktivieren', 'aria-label': x.active ? 'Deaktivieren' : 'Aktivieren', onclick: async () => { await api('PATCH', `/users/${x.id}`, { active: !x.active }); reload(); } }, icon(x.active ? 'lock' : 'check', 16)),
-        !self && !isAdmin && h('button', { class: 'icon-btn danger', title: 'Löschen', 'aria-label': 'Löschen', onclick: async () => { if (await confirmDialog('Benutzer löschen?', `„${x.displayName}“ und alle zugehörigen Abgaben werden endgültig gelöscht. Tipp: Deaktivieren behält die Daten.`)) { await api('DELETE', `/users/${x.id}`); reload(); } } }, icon('trash', 16)))));
+        !self && h('button', { class: 'icon-btn', title: x.active ? 'Deaktivieren' : 'Aktivieren', 'aria-label': x.active ? 'Deaktivieren' : 'Aktivieren', onclick: async () => { await api('PATCH', `/users/${x.id}`, { active: !x.active }); reload(); } }, icon(x.active ? 'lock' : 'check', 16)),
+        !self && h('button', { class: 'icon-btn danger', title: 'Löschen', 'aria-label': 'Löschen', onclick: async () => { if (await confirmDialog('Benutzer löschen?', `„${x.displayName}“ und alle zugehörigen Abgaben werden endgültig gelöscht. Tipp: Deaktivieren behält die Daten.`)) { await api('DELETE', `/users/${x.id}`); reload(); } } }, icon('trash', 16)))));
   }
   main.append(h('div', { class: 'card flush tbl-wrap' }, h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ['Name', 'Gruppe', 'Angelegt', ''].map((t, i) => h('th', { class: i === 2 ? 'hide-sm' : '' }, t)))), body)));
 }

@@ -1,4 +1,4 @@
-import { h, $, clear, api, icon, toast, modal, confirmDialog, formDialogSubmit, ROLE } from './ui.js';
+import { h, $, clear, api, icon, toast, modal, confirmDialog, formDialogSubmit, ROLE, themeToggle } from './ui.js';
 import * as V from './views.js';
 
 const app = $('#app');
@@ -53,7 +53,7 @@ function renderShell() {
   const nav = h('header', { class: 'nav' }, h('div', { class: 'nav-in' },
     h('a', { class: 'brand', href: '#/' }, h('span', { class: 'brand-mark' }, 'A'), 'Azubify'),
     h('nav', { style: { display: 'flex', gap: '4px' }, 'aria-label': 'Hauptnavigation' }, tabs.filter(Boolean).map(([p, l, ic]) => h('a', { class: 'tab' + (isOn(p) ? ' on' : ''), href: '#' + p, 'aria-current': isOn(p) ? 'page' : undefined }, icon(ic, 17), h('span', null, l)))),
-    h('div', { class: 'grow' }), accountMenu()));
+    h('div', { class: 'grow' }), themeToggle(), accountMenu()));
   if (!shell) { clear(app).append(h('div', { id: 'shell' }, nav, h('main', { id: 'view' }))); return; }
   shell.firstChild.replaceWith(nav);
 }
@@ -101,7 +101,7 @@ function showLogin(message) {
     catch (ex) { err.textContent = ex.message; btn.disabled = false; pw.select(); }
   } },
   h('label', { class: 'field' }, h('span', null, 'Benutzername'), user), h('label', { class: 'field' }, h('span', null, 'Passwort'), pw), err, btn);
-  clear(app).append(h('div', { class: 'login' }, h('div', { class: 'login-box' },
+  clear(app).append(h('div', { class: 'login' }, themeToggle('login-theme'), h('div', { class: 'login-box' },
     h('div', { class: 'brand-mark' }, 'A'), h('h1', null, 'Azubify'), h('p', { class: 'muted' }, 'Lernen, üben, nachweisen.'), h('div', { class: 'card' }, form))));
   user.focus();
 }
