@@ -1,0 +1,18 @@
+# Für Portainer: Stacks → Add stack → Web editor → diesen Inhalt einfügen.
+# Das Image wird von GitHub Actions gebaut, in Portainer wird nichts gebaut.
+services:
+  azubify:
+    image: ghcr.io/flowoy96/azubify:latest
+    container_name: azubify
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: "BITTE-AENDERN-12345"   # nur beim ersten Start relevant
+      # COOKIE_SECURE: "true"                 # aktivieren, wenn hinter HTTPS-Proxy
+    volumes:
+      - azubify-data:/data
+
+volumes:
+  azubify-data:
