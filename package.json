@@ -10,7 +10,7 @@
     "test": "node --disable-warning=ExperimentalWarning --test test/blocks.test.js"
   },
   "engines": { "node": ">=22.13" },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "dependencies": {
     "express": "^4.21.2",
     "sanitize-html": "^2.17.0"
