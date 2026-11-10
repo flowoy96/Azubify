@@ -75,6 +75,8 @@ const P = {
   list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
   olist: 'M10 6h10M10 12h10M10 18h10M4 5l1.5-1v4M4 14.5h2.5L4 17.5h2.5',
   cloud: 'M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 10a4 4 0 0 1-.5 8z',
+  sun: 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4',
+  moon: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z',
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM5 20a7 7 0 0 1 14 0',
 };
 export function icon(name, size = 18) {
@@ -187,3 +189,22 @@ export const STATUS = {
 };
 export const statusPill = (s) => h('span', { class: `pill c-${(STATUS[s] || STATUS.open)[1]}` }, (STATUS[s] || STATUS.open)[0]);
 export const ROLE = { admin: 'Admin', ausbilder: 'Ausbilder', azubi: 'Azubi' };
+
+// ─── Light/Dark-Umschalter ───
+export const effectiveTheme = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+export function themeToggle(extraClass = '') {
+  const btn = h('button', { class: 'icon-btn theme-btn ' + extraClass, type: 'button' });
+  const draw = () => {
+    const dark = effectiveTheme() === 'dark';
+    clear(btn).append(icon(dark ? 'sun' : 'moon', 18));
+    btn.title = btn.ariaLabel = dark ? 'Helles Design' : 'Dunkles Design';
+  };
+  btn.onclick = () => {
+    const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('azubify:theme', next); } catch { /* egal */ }
+    draw();
+  };
+  draw();
+  return btn;
+}

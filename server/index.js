@@ -79,7 +79,7 @@ api.get('/users', staff, wrap((req, res) => {
   const visible = req.user.role === 'admin' ? rows : rows.filter((u) => u.role === 'azubi');
   res.json({ users: visible.map(A.publicUser) });
 }));
-const validRole = (r) => ['azubi', 'ausbilder'].includes(r);
+const validRole = (r) => ['azubi', 'ausbilder', 'admin'].includes(r);
 api.post('/users', admin, wrap((req, res) => {
   const { username, displayName, role, password } = req.body;
   const un = String(username || '').trim();
@@ -102,7 +102,7 @@ api.patch('/users/:id', admin, wrap((req, res) => {
     db.prepare('UPDATE users SET display_name=? WHERE id=?').run(String(displayName).trim().slice(0, 80), u.id);
   }
   if (role !== undefined && role !== u.role) {
-    if (isSelf || u.role === 'admin') return bad(res, 'Die Gruppe des Admins kann nicht geändert werden.');
+    if (isSelf) return bad(res, 'Du kannst deine eigene Gruppe nicht ändern.');
     if (!validRole(role)) return bad(res, 'Ungültige Gruppe.');
     db.prepare('UPDATE users SET role=? WHERE id=?').run(role, u.id);
   }
@@ -121,7 +121,7 @@ api.patch('/users/:id', admin, wrap((req, res) => {
 api.delete('/users/:id', admin, wrap((req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!u) return bad(res, 'Benutzer nicht gefunden.', 404);
-  if (u.id === req.user.id || u.role === 'admin') return bad(res, 'Der Admin kann nicht gelöscht werden.');
+  if (u.id === req.user.id) return bad(res, 'Du kannst dich nicht selbst löschen.');
   db.prepare('DELETE FROM users WHERE id=?').run(u.id);
   res.json({ ok: true });
 }));
@@ -410,7 +410,7 @@ api.get('/progress', staff, wrap((req, res) => {
       total: a.total + t.total, done: a.done + t.reviewed + t.submitted, reviewed: a.reviewed + t.reviewed,
       score: a.score + t.score, max: a.max + t.max, submitted: a.submitted + t.submitted,
     }), { total: 0, done: 0, reviewed: 0, score: 0, max: 0, submitted: 0 });
-    return { id: u.id, name: u.display_name, active: !!u.active, topics, ...sum };
+    return { id: u.id, name: u.display_name, active: !!u.active, topics, topicCount: topics.length, ...sum };
   });
   const toReview = db.prepare(`SELECT s.id, s.submitted_at, u.display_name name, t.title task, p.title topic, t.id task_id
     FROM submissions s JOIN users u ON u.id=s.user_id JOIN tasks t ON t.id=s.task_id JOIN topics p ON p.id=t.topic_id
