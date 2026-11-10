@@ -70,6 +70,11 @@ CREATE INDEX IF NOT EXISTS idx_tasks_topic ON tasks(topic_id);
 CREATE INDEX IF NOT EXISTS idx_sub_user ON submissions(user_id);
 `);
 
+// Migration für bestehende Datenbanken
+if (!db.prepare('PRAGMA table_info(submissions)').all().some((c) => c.name === 'archived')) {
+  db.exec('ALTER TABLE submissions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+}
+
 function tx(fn) {
   db.exec('BEGIN IMMEDIATE');
   try { const r = fn(); db.exec('COMMIT'); return r; }
